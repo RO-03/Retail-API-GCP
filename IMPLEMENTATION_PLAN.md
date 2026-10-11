@@ -15,21 +15,29 @@ Goal: run the Retail API on Google Cloud (Cloud Run + Cloud SQL), load test it, 
 | CI is self-hosted and Minikube-only | Add a separate GCP workflow on GitHub-hosted runners |
 | JMeter targets `retail-store.local:80` over http | Parameterize host, port and protocol |
 
-## Phase 0: Account and safety (about 1 hour)
-- [ ] Create the GCP project, link billing, set budget alerts at $5, $10 and $25.
-- [ ] Install gcloud; run `gcloud init` and `gcloud auth application-default login`.
-- [ ] Set the default region to `asia-south1`.
-- [ ] Enable APIs: run, artifactregistry, sqladmin, secretmanager, cloudbuild, monitoring, logging, iamcredentials.
+## Phase 0: Account and safety (about 1 hour) - DONE
+- [x] Create the GCP project (`retailgcp`), link billing, set budget alerts. Done as one monthly budget of 2,420 INR with alerts at 25%, 50% and 100% (about $7, $14, $28).
+- [x] Install gcloud; run `gcloud init` and `gcloud auth application-default login`.
+- [x] Set the default region to `asia-south1`.
+- [x] Enable APIs: run, artifactregistry, sqladmin, secretmanager, cloudbuild, monitoring, logging, iamcredentials.
 
 Learn: projects vs billing accounts; budget alerts only notify, they do not cap spending.
 
-## Phase 1: Make the code cloud-ready (Day 1)
-- [ ] Dockerfile: use `${PORT:-8000}` and `${WORKERS:-2}`; add `.git` to `.dockerignore`.
-- [ ] `app/core/database.py`: if `INSTANCE_CONNECTION_NAME` is set, build the URL with `URL.create` and `host=/cloudsql/<conn>`; otherwise use `DATABASE_URL`. Read `DB_POOL_SIZE` and `DB_MAX_OVERFLOW` from env.
-- [ ] `app/services/auth.py`: read `SECRET_KEY` from env; fail loudly if missing outside dev.
-- [ ] Add `/healthz` with no DB access.
-- [ ] Move `create_all` out of import time into `scripts/init_db.py`; make `create_admin.py` read its password from env.
-- [ ] Run pytest and `docker compose up` to confirm local mode still works; commit.
+## Phase 1: Make the code cloud-ready (Day 1) - DONE
+- [x] Dockerfile: use `${PORT:-8000}` and `${WORKERS:-2}`; add `.git` to `.dockerignore`.
+- [x] `app/core/database.py`: if `INSTANCE_CONNECTION_NAME` is set, build the URL with `URL.create` and `host=/cloudsql/<conn>`; otherwise use `DATABASE_URL`. Read `DB_POOL_SIZE` and `DB_MAX_OVERFLOW` from env.
+- [x] `app/services/auth.py`: read `SECRET_KEY` from env; fail loudly if missing outside dev.
+- [x] Add `/healthz` with no DB access.
+- [x] Move `create_all` out of import time into `scripts/init_db.py`; make `create_admin.py` read its password from env.
+- [x] Add an `orders` table (id, item_id, created_at) in `app/models/item.py`; insert a row inside the same transaction as the stock decrement in `POST /purchase/{item_id}`, so a purchase either does both or neither. Add a pytest check that stock drops by one and exactly one order row exists. This makes the load test write real data.
+- [x] Run pytest and `docker compose up` to confirm local mode still works; commit.
+
+Verified on real Postgres 15 via docker compose: 40 concurrent purchases on an item with 15 in stock gave 15 x 200 and 25 x 409, final stock 0, exactly 15 order rows. Deleting an item keeps its orders (item_id set to NULL). pytest: 20 passed.
+
+Findings during Phase 1:
+- SQLAlchemy 2.1+ maps a bare `postgresql://` URL to the psycopg v3 driver, but requirements install psycopg2, so fresh builds failed. Fixed by rewriting the URL to `postgresql+psycopg2://` in `database.py`.
+- With `AUTO_CREATE_TABLES=1` (legacy compose and K8s path) two workers race on `create_all` and one crashes and is respawned. This is the reason Cloud Run uses `scripts/init_db.py` as a Job instead.
+- Dependencies in `requirements.txt` are unpinned; consider pinning in Phase 2.
 
 Learn: 12-factor config, why import-time side effects break at scale, liveness vs readiness vs startup probes.
 
@@ -59,6 +67,7 @@ Learn: Cloud Run concurrency vs Kubernetes replicas, cold starts, jobs vs servic
 - [ ] Parameterize `batches.jmx` with `${__P(host)}`, `${__P(port)}`, `${__P(protocol)}`.
 - [ ] Run from your laptop and from a Compute Engine VM or Cloud Run Job in `asia-south1`; label results honestly (laptop numbers mostly measure your internet).
 - [ ] Record RPS, p50/p95/p99 and error rate in a Minikube vs Cloud Run table. Report measured values.
+- [ ] After each run, check that `orders` row count equals the stock decrease (no oversell, no lost writes) and note it in the results.
 - [ ] Monitoring dashboard: request count, latency percentiles, instance count, Cloud SQL connections.
 - [ ] Uptime check on `/healthz`; alert on 5xx rate or p95 latency.
 - [ ] Log-based metric for 409 "out of stock" responses.

@@ -27,6 +27,8 @@ from sqlalchemy.orm import sessionmaker
 # ── Override DATABASE_URL before importing any app module ─────────────────────
 TEST_DB_URL = os.environ.get("DATABASE_URL", "sqlite:///./test_retail.db")
 
+os.environ["AUTO_CREATE_TABLES"] = "1"  # tests create tables on import of app.main
+
 from app.core.database import engine
 import app.models.item as models
 from app.services.auth import get_password_hash, get_db
@@ -56,6 +58,7 @@ client = TestClient(app)
 def clean_tables():
     """Wipe all rows before each test for full isolation."""
     db = TestingSessionLocal()
+    db.query(models.Order).delete()
     db.query(models.Item).delete()
     db.query(models.Admin).delete()
     db.commit()
@@ -106,6 +109,11 @@ class TestHealth:
         assert resp.status_code == 200
         assert resp.json() == {"status": "ok"}
 
+    def test_healthz_returns_alive(self):
+        resp = client.get("/healthz")
+        assert resp.status_code == 200
+        assert resp.json() == {"status": "alive"}
+
 
 # ─── Public customer routes ───────────────────────────────────────────────────
 
@@ -133,6 +141,21 @@ class TestPurchase:
         # Verify stock decremented
         items = client.get("/items").json()
         assert items[0]["stock"] == 9
+
+    def test_purchase_records_exactly_one_order(self, seeded_item):
+        client.post(f"/purchase/{seeded_item}")
+        db = TestingSessionLocal()
+        orders = db.query(models.Order).filter(models.Order.item_id == seeded_item).all()
+        db.close()
+        assert len(orders) == 1
+        assert orders[0].created_at is not None
+
+    def test_failed_purchase_records_no_order(self):
+        client.post("/purchase/99999")
+        db = TestingSessionLocal()
+        count = db.query(models.Order).count()
+        db.close()
+        assert count == 0
 
     def test_purchase_out_of_stock(self):
         """Insert item with 0 stock — must return 409."""

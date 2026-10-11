@@ -46,5 +46,7 @@ def purchase_item(item_id: int, db: Session = Depends(get_db)):
     if not result:
         raise HTTPException(status_code=409, detail="Item out of stock or does not exist")
 
+    # Same transaction as the stock decrement: both are committed together or neither is.
+    db.add(models.Order(item_id=item_id))
     db.commit()
     return {"message": "Purchase successful"}

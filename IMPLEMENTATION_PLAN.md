@@ -1,0 +1,90 @@
+# GCP Migration: Implementation Plan
+
+Goal: run the Retail API on Google Cloud (Cloud Run + Cloud SQL), load test it, automate deployment with keyless CI/CD, and document it. Region: `asia-south1` (Mumbai). Working branch: `gcp`.
+
+## Repo findings that shape the plan
+
+| Finding | Action |
+|---|---|
+| Dockerfile hardcodes port 8000 and 2 workers | Read `PORT` and `WORKERS` from env (Cloud Run injects `PORT`) |
+| `DATABASE_URL` is a single string with a hardcoded fallback | Add a Cloud SQL socket mode, keep `DATABASE_URL` for local and tests |
+| Pool is 20 + 30 per worker, up to 50 connections each | Shrink via env; size against Cloud SQL `max_connections` (f1-micro allows about 25) |
+| `create_all()` runs at import time; seeding is manual | Move to `scripts/init_db.py`, run as a Cloud Run Job |
+| `SECRET_KEY` and `admin123` are hardcoded | Move to Secret Manager |
+| `/health` hits the DB | Keep for readiness and startup; add DB-free `/healthz` for liveness |
+| CI is self-hosted and Minikube-only | Add a separate GCP workflow on GitHub-hosted runners |
+| JMeter targets `retail-store.local:80` over http | Parameterize host, port and protocol |
+
+## Phase 0: Account and safety (about 1 hour)
+- [ ] Create the GCP project, link billing, set budget alerts at $5, $10 and $25.
+- [ ] Install gcloud; run `gcloud init` and `gcloud auth application-default login`.
+- [ ] Set the default region to `asia-south1`.
+- [ ] Enable APIs: run, artifactregistry, sqladmin, secretmanager, cloudbuild, monitoring, logging, iamcredentials.
+
+Learn: projects vs billing accounts; budget alerts only notify, they do not cap spending.
+
+## Phase 1: Make the code cloud-ready (Day 1)
+- [ ] Dockerfile: use `${PORT:-8000}` and `${WORKERS:-2}`; add `.git` to `.dockerignore`.
+- [ ] `app/core/database.py`: if `INSTANCE_CONNECTION_NAME` is set, build the URL with `URL.create` and `host=/cloudsql/<conn>`; otherwise use `DATABASE_URL`. Read `DB_POOL_SIZE` and `DB_MAX_OVERFLOW` from env.
+- [ ] `app/services/auth.py`: read `SECRET_KEY` from env; fail loudly if missing outside dev.
+- [ ] Add `/healthz` with no DB access.
+- [ ] Move `create_all` out of import time into `scripts/init_db.py`; make `create_admin.py` read its password from env.
+- [ ] Run pytest and `docker compose up` to confirm local mode still works; commit.
+
+Learn: 12-factor config, why import-time side effects break at scale, liveness vs readiness vs startup probes.
+
+## Phase 2: Registry, build, identity (Day 1)
+- [ ] Create Artifact Registry `retail-repo` with a cleanup policy keeping the last 5 images.
+- [ ] Build with Cloud Build; tag with the git SHA, never `latest`.
+- [ ] Create service account `retail-run-sa` with only `roles/cloudsql.client` and `roles/secretmanager.secretAccessor`.
+
+Learn: Cloud Build vs local build, immutable tags, least privilege.
+
+## Phase 3: Data and secrets (Day 2)
+- [ ] Create Cloud SQL Postgres 15 with `--edition=ENTERPRISE`. Start with `db-f1-micro`, check `SHOW max_connections;`, move to `db-g1-small` if needed.
+- [ ] No authorized networks; Cloud Run connects through the Cloud SQL connector socket.
+- [ ] Create secrets `db-password`, `jwt-secret-key`, `admin-password`. Rotate one to see versioning.
+
+Learn: what Google manages vs what you still own; secret versions.
+
+## Phase 4: Deploy and operate (Day 2)
+- [ ] Deploy to Cloud Run with: `--service-account retail-run-sa`, `--cpu 2 --memory 1Gi`, `--concurrency 40`, `--min-instances 1 --max-instances 3`, `--cpu-boost`, `--set-secrets`, startup probe on `/health`, liveness probe on `/healthz`.
+- [ ] Pool budget check: `max_instances x workers x (pool + overflow) < max_connections - ~10`. Example: 3 x 2 x 5 = 30.
+- [ ] Create a Cloud Run Job running `init_db.py`, `create_admin.py`, `seed_items.py`; execute once.
+- [ ] Practice revisions: deploy v2 with `--no-traffic`, split 10%, then 100%, then roll back.
+
+Learn: Cloud Run concurrency vs Kubernetes replicas, cold starts, jobs vs services.
+
+## Phase 5: Load test and observability (Day 3)
+- [ ] Parameterize `batches.jmx` with `${__P(host)}`, `${__P(port)}`, `${__P(protocol)}`.
+- [ ] Run from your laptop and from a Compute Engine VM or Cloud Run Job in `asia-south1`; label results honestly (laptop numbers mostly measure your internet).
+- [ ] Record RPS, p50/p95/p99 and error rate in a Minikube vs Cloud Run table. Report measured values.
+- [ ] Monitoring dashboard: request count, latency percentiles, instance count, Cloud SQL connections.
+- [ ] Uptime check on `/healthz`; alert on 5xx rate or p95 latency.
+- [ ] Log-based metric for 409 "out of stock" responses.
+- [ ] Deliberately exceed the connection budget once to see how pool exhaustion appears.
+
+Learn: golden signals, alerting, why pool exhaustion shows up as latency before errors.
+
+## Phase 6: CI/CD with Workload Identity Federation (Day 3)
+- [ ] Create a Workload Identity Pool and GitHub OIDC provider restricted to `RO-03/Retail-API-GCP`.
+- [ ] Create a deployer service account with `run.admin`, `artifactregistry.writer`, `iam.serviceAccountUser`.
+- [ ] Add `.github/workflows/gcp-deploy.yml` (GitHub-hosted runners, `gcp` branch): pytest, auth, build and push by SHA, deploy with `--no-traffic`, smoke test, promote traffic, short JMeter gate.
+- [ ] Enable Actions on the repo; pin action versions.
+
+Learn: OIDC token exchange, no long-lived keys, attribute conditions.
+
+## Phase 7: Docs, resume, cleanup
+- [ ] README: GCP architecture diagram, deploy steps or `deploy.sh`, results table, screenshots, cost notes, pool math. Fix badges that still point at the old repo.
+- [ ] Delete the Cloud Run service and Cloud SQL instance; verify in Billing.
+- [ ] Write resume bullets using only measured numbers.
+
+## Stretch goals (by learning value)
+1. Private IP for Cloud SQL via Direct VPC egress.
+2. Terraform for the whole stack.
+3. Load balancer with Cloud Armor rate limiting.
+4. Cloud Trace via OpenTelemetry.
+5. GKE with the existing `k8s/` manifests, compared to Cloud Run.
+
+## Cost note
+Cloud SQL is the main cost. Do Phases 3 to 5 in one or two sittings, then delete it.

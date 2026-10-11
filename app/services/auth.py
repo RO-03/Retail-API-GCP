@@ -1,3 +1,4 @@
+import os
 from datetime import datetime, timedelta
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -7,8 +8,13 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 import app.models.item as models
 
-# Security Settings (In production, move SECRET_KEY to .env)
-SECRET_KEY = "your-super-secret-key-change-this"
+# Security Settings. SECRET_KEY comes from the environment (Secret Manager on Cloud Run).
+# Only a non-production run may fall back to an insecure dev key.
+SECRET_KEY = os.getenv("SECRET_KEY")
+if not SECRET_KEY:
+    if os.getenv("APP_ENV", "dev") == "production":
+        raise RuntimeError("SECRET_KEY must be set when APP_ENV=production")
+    SECRET_KEY = "dev-only-insecure-key"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 

@@ -48,6 +48,8 @@ spec:
           env:
             - name: DATABASE_URL
               value: "postgresql://user:password@db:5432/retail_db"
+            - name: AUTO_CREATE_TABLES
+              value: "1"
 
           # Readiness probe: K8s will only send traffic to this pod once /health returns 200.
           # This prevents requests from hitting a pod whose DB connection is not yet established.

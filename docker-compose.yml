@@ -24,6 +24,7 @@ services:
       - "8000:8000"
     environment:
       - DATABASE_URL=postgresql://user:password@db:5432/retail_db
+      - AUTO_CREATE_TABLES=1
     depends_on:
       db:
         condition: service_healthy

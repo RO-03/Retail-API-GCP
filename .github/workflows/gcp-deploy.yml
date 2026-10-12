@@ -8,6 +8,11 @@ name: Deploy to Google Cloud Run
 on:
   push:
     branches: [gcp]
+    # Docs, screenshots and monitoring definitions do not change the running app.
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "monitoring/**"
   workflow_dispatch:
 
 permissions:

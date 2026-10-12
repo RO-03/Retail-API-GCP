@@ -84,11 +84,17 @@ Learn: Cloud Run concurrency vs Kubernetes replicas, cold starts, jobs vs servic
 
 Learn: golden signals, alerting, why p50 can look fine while p95 and p99 and error rate show pool exhaustion.
 
-## Phase 6: CI/CD with Workload Identity Federation (Day 3)
-- [ ] Create a Workload Identity Pool and GitHub OIDC provider restricted to `RO-03/Retail-API-GCP`.
-- [ ] Create a deployer service account with `run.admin`, `artifactregistry.writer`, `iam.serviceAccountUser`.
-- [ ] Add `.github/workflows/gcp-deploy.yml` (GitHub-hosted runners, `gcp` branch): pytest, auth, build and push by SHA, deploy with `--no-traffic`, smoke test, promote traffic, short JMeter gate.
-- [ ] Enable Actions on the repo; pin action versions.
+## Phase 6: CI/CD with Workload Identity Federation (Day 3) - DONE
+- [x] Create a Workload Identity Pool (`github-pool`) and GitHub OIDC provider (`github-provider`) restricted to `RO-03/Retail-API-GCP` on the `gcp` and `main` branches (attribute condition).
+- [x] Create a deployer service account (`retail-deployer-sa`). Roles are scoped to resources, not the project: `run.admin` on the one service, `artifactregistry.writer` on the one repo, `iam.serviceAccountUser` on `retail-run-sa` only. It has no project-level roles and no stored keys.
+- [x] Add `.github/workflows/gcp-deploy.yml` (GitHub-hosted runners, `gcp` branch): pytest, keyless auth, build and push by SHA, deploy with `--no-traffic` on a tagged URL, smoke test (`/livez`, `/health`, `/items`), promote traffic. Verified: run 38295059874 succeeded end to end and the live service now runs the pushed commit's image (`41efebe`).
+- [x] Actions are enabled on the repo (the workflow ran). Action versions are pinned to major tags (`@v4`, `@v5`, `@v2`).
+- [ ] Not done: a JMeter performance gate in the pipeline. It was left out on purpose because the measured run-to-run variance (35 to 104 req/s for the same test) would make a throughput gate flaky.
+
+Findings during Phase 6:
+- The first run failed in the test job because `pytest` did not put the repo on the import path; `python -m pytest` fixes it. The cloud steps ran fine on the second push.
+- `gh` defaulted to the old `upstream` repository; commands need `-R RO-03/Retail-API-GCP`.
+- The old `.github/workflows/deploy.yml` (self-hosted runner, Minikube) is still in the repo and triggers on `main`, so it would fail if `gcp` is merged into `main`. Decide in Phase 7 whether to disable or remove it.
 
 Learn: OIDC token exchange, no long-lived keys, attribute conditions.
 

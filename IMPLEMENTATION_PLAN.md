@@ -51,23 +51,28 @@ Note: the secretAccessor role is granted project-wide for now; in Phase 3 it can
 
 Learn: Cloud Build vs local build, immutable tags, least privilege.
 
-## Phase 3: Data and secrets (Day 2)
-- [ ] Create Cloud SQL Postgres 15 with `--edition=ENTERPRISE`. Start with `db-f1-micro`, check `SHOW max_connections;`, move to `db-g1-small` if needed.
-- [ ] No authorized networks; Cloud Run connects through the Cloud SQL connector socket.
-- [ ] Create secrets `db-password`, `jwt-secret-key`, `admin-password`. Rotate one to see versioning.
+## Phase 3: Data and secrets (Day 2) - DONE (except secret rotation)
+- [x] Create Cloud SQL Postgres 15 with `--edition=ENTERPRISE`. Instance `retail-db`, `db-f1-micro`, 10 GB SSD, zonal, no backups. Measured `SHOW max_connections;` = **25** (3 reserved for superusers, so 22 usable). Kept `db-f1-micro`.
+- [x] No authorized networks; Cloud Run connects through the Cloud SQL connector socket (verified from a Cloud Run Job and the service).
+- [x] Create secrets `db-password`, `jwt-secret-key`, `admin-password` (random values, never printed). Narrowed `secretAccessor` for `retail-run-sa` from project-wide to these three secrets only.
+- [ ] Rotate one secret to see versioning (optional, do if time allows).
 
 Learn: what Google manages vs what you still own; secret versions.
 
-## Phase 4: Deploy and operate (Day 2)
-- [ ] Deploy to Cloud Run with: `--service-account retail-run-sa`, `--cpu 2 --memory 1Gi`, `--concurrency 40`, `--min-instances 1 --max-instances 3`, `--cpu-boost`, `--set-secrets`, startup probe on `/health`, liveness probe on `/livez`.
-- [ ] Pool budget check: `max_instances x workers x (pool + overflow) < max_connections - ~10`. Example: 3 x 2 x 5 = 30.
-- [ ] Create a Cloud Run Job running `init_db.py`, `create_admin.py`, `seed_items.py`; execute once.
-- [ ] Practice revisions: deploy v2 with `--no-traffic`, split 10%, then 100%, then roll back.
+## Phase 4: Deploy and operate (Day 2) - DONE
+- [x] Deploy to Cloud Run with: `--service-account retail-run-sa`, `--cpu 2 --memory 1Gi`, `--concurrency 40`, `--min-instances 1 --max-instances 3`, `--cpu-boost`, `--set-secrets`, startup probe on `/health`, liveness probe on `/livez`. Service: `retail-api` in asia-south1.
+- [x] Pool budget check: `max_instances x workers x (pool + overflow) <= max_connections - reserved`. The original example (3 x 2 x 5 = 30) does not fit the measured limit of 25. Actual: 3 x 2 x (2 + 1) = 18 connections, under the 22 usable.
+- [x] Cloud Run Job `retail-tools` (same image, Cloud SQL socket, secrets) ran `init_db`, `create_admin`, `seed_items` and `db_report` (max_connections and an orders-versus-stock check).
+- [x] Practice revisions: deployed revision 2 with `--no-traffic` on a tagged URL, tested it, split 10%, promoted to 100%, rolled back to revision 1, rolled forward again.
+
+Findings during Phase 4:
+- Cloud Run's front end reserves `/healthz` on public `*.run.app` URLs and answers 404 itself, so the liveness route was renamed to `/livez`.
+- Google's front end rejects a POST without a body or `Content-Length` with HTTP 411. Check that JMeter's POST sends `Content-Length: 0`.
 
 Learn: Cloud Run concurrency vs Kubernetes replicas, cold starts, jobs vs services.
 
 ## Phase 5: Load test and observability (Day 3)
-- [ ] Parameterize `batches.jmx` with `${__P(host)}`, `${__P(port)}`, `${__P(protocol)}`.
+- [x] Parameterize `batches.jmx` with `${__P(host)}`, `${__P(port)}`, `${__P(protocol)}` (also item, threads, loops, ramp; defaults match the old Minikube setup).
 - [ ] Run from your laptop and from a Compute Engine VM or Cloud Run Job in `asia-south1`; label results honestly (laptop numbers mostly measure your internet).
 - [ ] Record RPS, p50/p95/p99 and error rate in a Minikube vs Cloud Run table. Report measured values.
 - [ ] After each run, check that `orders` row count equals the stock decrease (no oversell, no lost writes) and note it in the results.

@@ -1,209 +1,190 @@
-<div align="center">
-  <h1> High-Performance Retail API </h1>
-  <p><i>A highly scalable, containerized REST API engineered for extreme concurrency</i></p>
-  
-  [![CI/CD Pipeline](https://github.com/RO-03/Retail-API-stress-test/actions/workflows/deploy.yml/badge.svg)](https://github.com/RO-03/Retail-API-stress-test/actions/workflows/deploy.yml)
-  ![Python](https://img.shields.io/badge/Python-3.11-blue?logo=python&logoColor=white)
-  ![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-009688?logo=fastapi&logoColor=white)
-  ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-336791?logo=postgresql&logoColor=white)
-  ![Kubernetes](https://img.shields.io/badge/Kubernetes-Minikube-326ce5?logo=kubernetes&logoColor=white)
-  ![Docker](https://img.shields.io/badge/Docker-Ready-2496ed?logo=docker&logoColor=white)
-</div>
+# Retail API on Google Cloud
 
----
+[![Deploy to Google Cloud Run](https://github.com/RO-03/Retail-API-GCP/actions/workflows/gcp-deploy.yml/badge.svg?branch=gcp)](https://github.com/RO-03/Retail-API-GCP/actions/workflows/gcp-deploy.yml)
 
-## 📖 Overview
+A FastAPI + PostgreSQL retail store API, ported from a Kubernetes (Minikube) prototype to **Google Cloud Run and Cloud SQL**, then load tested, monitored and deployed through a **keyless CI/CD pipeline**. The point of the project is the cloud engineering around a small app: connection budgeting, secrets, least-privilege IAM, observability, revision-based releases and measured load tests.
 
-This project is a full-stack **Retail Store Inventory and Purchasing API** built to handle high-concurrency workloads (10,000+ simultaneous requests). 
+> The Cloud Run service and Cloud SQL instance were created for this project and are deleted after the work is done, so there is no live URL. The evidence is in the screenshots, the measured results in [RESULTS.md](RESULTS.md) and the infrastructure definitions in this repo.
 
-**The Engineering Challenge:** The original monolithic architecture suffered from severe database locking bottlenecks under load. 
-**The Solution:** This system was systematically refactored into a clean **MVC architecture**, migrated to **PostgreSQL** with aggressive connection pooling, containerized via **Docker**, and orchestrated across a **Kubernetes** cluster utilizing an **Nginx Ingress Controller** to bypass NodePort networking limits.
+The original Minikube/Nginx Ingress version is documented in [docs/MINIKUBE_README.md](docs/MINIKUBE_README.md) and in the [original repository](https://github.com/RO-03/Retail-API-stress-test).
 
-This repository serves as a showcase of modern backend engineering, performance tuning, and DevOps best practices.
+## What the app does
 
----
+- Customer storefront (`/`, `GET /items`) and a concurrency-safe purchase endpoint (`POST /purchase/{id}`): one `UPDATE ... WHERE stock > 0 RETURNING` plus an `orders` row in the same transaction. Out of stock returns HTTP 409.
+- Admin dashboard with JWT login and item management.
+- Health endpoints: `/livez` (no database, used as the liveness probe) and `/health` (checks the database, used for startup and readiness).
 
-## 🏗️ System Architecture
+## Architecture
 
-Traffic is routed through an Nginx Ingress Controller, which bypasses `kube-proxy` for direct upstream load balancing, feeding into a highly available API deployment connected to a persistently provisioned PostgreSQL database.
-
-```text
-                                    ┌──────────────────────────────────────────────┐
-                                    │              Kubernetes Cluster              │
-                                    │                                              │
- retail-store.local:80 ────────────►│  [Nginx Ingress Controller]                  │
-                                    │    - ingressClassName: nginx                 │
-                                    │    - path: / → retail-api-service:8000       │
-                                    │                   │                          │
-                                    │        ClusterIP Service (port 8000)         │
-                                    │                   │                          │
-                                    │   ┌───────────────┼───────────────┐          │
-                                    │   ▼               ▼               ▼          │
-                                    │ [Pod 1]        [Pod 2]        [Pod 3]        │
-                                    │ 2 workers      2 workers      2 workers      │
-                                    │       = 6 total Uvicorn workers              │
-                                    │                   │                          │
-                                    │     ClusterIP Service (db:5432)              │
-                                    │                   │                          │
-                                    │           [Postgres Pod]                     │
-                                    │        max_connections=350                   │
-                                    │           PVC (2Gi)                          │
-                                    └──────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+  dev["git push (gcp branch)"] --> gha["GitHub Actions<br/>tests, build, deploy"]
+  gha -- "OIDC token" --> wif["Workload Identity Federation<br/>repo and branch restricted"]
+  wif -- "short-lived credentials" --> dep["deployer service account<br/>no stored keys"]
+  gha -- "docker push, SHA tag" --> ar["Artifact Registry"]
+  dep --> run
+  ar --> run["Cloud Run: retail-api<br/>2 vCPU, concurrency 40, max 3 instances"]
+  clients["Clients and JMeter job"] --> run
+  run -- "Unix socket, Cloud SQL connector" --> sql[("Cloud SQL<br/>PostgreSQL 15")]
+  sm["Secret Manager<br/>db password, JWT key"] --> run
+  jobs["Cloud Run Jobs<br/>init, seed, report, load test"] --> sql
+  run --> mon["Cloud Monitoring<br/>dashboard, alerts, uptime check"]
+  run --> logs["Cloud Logging<br/>409 log-based metric"]
 ```
 
----
+| Layer | Choice | Why |
+|---|---|---|
+| Compute | Cloud Run, 2 vCPU / 1 GiB, concurrency 40, max 3 instances, CPU boost | Stateless API, request-based scaling, revisions and traffic splitting |
+| Database | Cloud SQL for PostgreSQL 15, `db-f1-micro`, zonal | Cheapest shared-core tier; `max_connections` measured at 25 |
+| Images | Artifact Registry, tagged with the git SHA, keep-last-5 cleanup policy | Immutable tags, every deployed revision maps to a commit |
+| Secrets | Secret Manager (database password, JWT key, admin password) | Nothing sensitive in the repo or image |
+| Identity | Runtime service account with Cloud SQL Client and per-secret Secret Accessor only | Least privilege |
+| CI/CD | GitHub Actions + Workload Identity Federation | No long-lived service account keys |
+| Observability | Cloud Monitoring dashboard, uptime check, 3 alert policies, log-based metric | Golden signals plus the pool limit |
 
-## ⚡ Performance Engineering & Tuning
+## Measured results (details and run settings in [RESULTS.md](RESULTS.md))
 
-This API isn't just containerized; it is mathematically tuned for its execution environment.
+Load generator: Apache JMeter in a Cloud Run Job in the same region, 200 concurrent users, 5,000 requests, all requests HTTP 200 (stock topped up first), against a `db-f1-micro` database.
 
-### 1. ASGI Worker Optimization
-The optimal number of workers prevents excessive CPU context switching while maximizing throughput.
-* **Step 1 – Calculate Worker Count:** `workers = CPU cores × 0.75`
-* **Implementation:** In this K8s deployment, we run **3 Replicas**, each configured with **2 Uvicorn workers** in the `Dockerfile`, yielding an optimal **6 system workers**.
+| Scenario | Throughput | p50 | p95 | p99 | Errors |
+|---|---|---|---|---|---|
+| All requests buy the same item (hot row) | 106.5 req/s | 955 ms | 1,785 ms | 3,455 ms | 0 |
+| Requests spread over 4 items | 276.3 req/s | 260 ms | 524 ms | 4,892 ms | 0 |
 
-### 2. Database Connection Pooling
-To prevent PostgreSQL connection exhaustion under a 10k user load, the connection pool was carefully sized.
-* **Step 2 – Configure PostgreSQL Connections:** `max_connections = workers × 5 + 50`
-* **Implementation:** `max_connections` is strictly set to **350** in the Postgres deployment. The SQLAlchemy engine is configured with `pool_size=20` and `max_overflow=30` per worker.
+- **Correctness:** across 34,296 purchases on 4 items (including runs that returned 409), orders equalled stock removed on every item. No overselling and no lost writes.
+- **Variance is large.** The same 1,000-request test gave 35 req/s once and 104 req/s on a repeat, and p99 tails of 3 to 5 seconds appeared in most runs and were not diagnosed. Read these as "measured on this setup", not as capacity guarantees.
+- **Not measured:** a Minikube versus Cloud Run comparison with the same test. No such claim is made.
 
-### 3. Nginx Ingress Migration
-Standard Kubernetes `NodePort` routes traffic through `iptables`/`kube-proxy`, which capped throughput at ~146 req/sec during load testing. By migrating to an **Nginx Ingress Controller**, we achieved direct upstream routing, recovering the baseline **270+ req/sec** throughput with zero error rates.
+COLD_START_PLACEHOLDER
 
----
+## Findings worth knowing
 
-## 🚀 CI/CD Pipeline
+1. **A hot row caps throughput.** Spreading the same load over 4 rows gave about 2.6x the throughput and about 3.7x lower median latency. This is consistent with row-lock contention on the single hot row (not confirmed by inspecting lock waits).
+2. **Connection pooling must fit the database limit.** Budget: `instances x workers x (pool_size + max_overflow) <= max_connections - reserved`. The deployed setting is 3 x 2 x 3 = 18 against 22 usable connections. A deliberate test with 10 + 10 per worker (up to 120) let only 22.6% of 2,000 requests succeed; Postgres answered `remaining connection slots are reserved` and `too many clients already`. The median stayed low (246 ms) while p95 reached about 21 seconds, so percentiles and error rate show the problem, not the median.
+3. **`/healthz` does not work on Cloud Run.** Its front end reserves that path on public `*.run.app` URLs and answers 404 itself, so the liveness route is `/livez`.
+4. **Import-time `create_all` races between workers.** Two Uvicorn workers creating tables at once crashed one with a duplicate-key error. Tables are now created by a separate script (`scripts/init_db.py`), run as a Cloud Run Job.
+5. **Unpinned dependencies broke fresh builds.** SQLAlchemy 2.1 maps a bare `postgresql://` URL to the psycopg v3 driver while the project installs psycopg2. The URL is now pinned to `postgresql+psycopg2://` and `requirements.txt` has exact versions.
+6. **Alerts work end to end.** The 5xx alert fired during the pool exhaustion test and recovered about 10 minutes later.
 
-The `.github/workflows/deploy.yml` pipeline automates the entire delivery process on pushes to the `main` or `minikubeMVC` branches using a self-hosted runner:
+## Screenshots
 
-1. **Unit Testing:** Provisions a Conda environment and executes `pytest` against an isolated, in-memory SQLite database to ensure business logic integrity.
-2. **Performance Quality Gate:** Spins up a throwaway Docker container running **Apache JMeter** to execute a stress test against the cluster. A custom Python script (`check_performance.py`) parses the JMeter CSV results and immediately fails the build if error rates exceed thresholds.
-3. **Build & Push:** Uses `eval $(minikube docker-env)` to build the optimized Docker image directly into the Minikube daemon, bypassing external container registries for ultra-fast deployments.
-4. **Zero-Downtime Deployment:** Triggers a `kubectl rollout restart`. The pipeline strictly waits for the new pods to pass their `/health` Readiness and Liveness probes before marking the deployment as successful.
-
----
-
-## 🛠️ Technology Stack
-
-| Category | Technologies |
+### Load tests, hot row versus spread
+| | |
 |---|---|
-| **Backend Framework** | FastAPI (Python 3.11), Uvicorn, Jinja2 Templates |
-| **Database & ORM** | PostgreSQL 15, SQLAlchemy, Pydantic |
-| **Security** | JWT (python-jose), bcrypt password hashing, passlib |
-| **Infrastructure** | Kubernetes (Minikube manifests), Docker |
-| **Networking** | Nginx Ingress Controller |
-| **CI/CD & Testing** | GitHub Actions, Pytest, HTTPX, Apache JMeter |
+| ![Requests and latency during the load tests](docs/Screenshots/01a-dashboard-load-tests-requests-latency.png) | ![Instances and Cloud SQL connections](docs/Screenshots/01b-dashboard-load-tests-instances-sql-connections.png) |
+| Request rate by status class and latency percentiles | Cloud Run scaled to 3 instances; Cloud SQL connections under the limit of 25 |
 
----
+![Cloud SQL CPU during the load tests](docs/Screenshots/01c-dashboard-load-tests-sql-cpu.png)
 
-## 💻 Local Development Setup
+### Pool exhaustion test
+![Requests and latency during pool exhaustion](docs/Screenshots/03a-dashboard-pool-exhaustion-requests-latency.png)
 
-### Prerequisites
-* Docker Desktop or Minikube
-* `kubectl` CLI
-* Apache JMeter (for manual load testing)
+![Instances and Cloud SQL connections during pool exhaustion](docs/Screenshots/03b-dashboard-pool-exhaustion-instances-sql-connections.png)
 
-### 1. Cluster Initialization
-```bash
-# Start Minikube and enable the required Nginx Ingress addon
-minikube start
-minikube addons enable ingress
+Cloud SQL connections reached 24 of 25 while instances rose to 6 during the rollout.
 
-# Point Docker CLI to Minikube's internal daemon
-eval $(minikube docker-env)  # Linux/macOS
-& minikube -p minikube docker-env --shell powershell | Invoke-Expression # Windows
-```
+![Cloud SQL CPU and 409 count](docs/Screenshots/03c-dashboard-pool-exhaustion-sql-cpu-409.png)
 
-### 2. Build & Deploy
-```bash
-# Build the application image
-docker build -t retail-api:latest .
+![Postgres connection slot errors in Logs Explorer](docs/Screenshots/10-logs-explorer-connection-slot-errors.png)
 
-# Deploy the database, API, and Ingress routing
-kubectl create namespace retail
-kubectl apply -f k8s/postgres.yaml -n retail
-kubectl apply -f k8s/api.yaml -n retail
-kubectl apply -f k8s/ingress.yaml -n retail
-```
+### Alerting
+![5xx alert opened and closed](docs/Screenshots/04a-alert-5xx-incident-opened-and-closed.png)
 
-### 3. Accessing the Application
-Since the Nginx Ingress Controller listens on port 80 and expects the `retail-store.local` host, you must map it:
+![Three alert policies enabled](docs/Screenshots/04b-alert-policies-enabled.png)
 
-**On Windows (using Docker driver):**
-1. Start the tunnel in a dedicated terminal: `minikube tunnel`
-2. Run PowerShell as Administrator and append to your hosts file:
-   ```powershell
-   Add-Content -Path "C:\Windows\System32\drivers\etc\hosts" -Value "`n127.0.0.1`tretail-store.local"
-   ```
+### Cloud Run
+![Revisions and traffic](docs/Screenshots/05a-cloud-run-revisions-and-traffic.png)
 
-You can now access the application at:
-* **Storefront UI:** `http://retail-store.local/`
-* **Admin Dashboard UI:** `http://retail-store.local/admin/`
-* **Swagger Documentation:** `http://retail-store.local/docs`
+![Environment variables and secret references](docs/Screenshots/05b-cloud-run-env-vars-and-secret-references.png)
 
----
+![Startup and liveness probes, Cloud SQL connection](docs/Screenshots/05c-cloud-run-health-checks-and-cloud-sql.png)
 
-## 🧪 Load Testing
+![Load test Job executions](docs/Screenshots/11-cloud-run-load-test-job-executions.png)
 
-A pre-configured JMeter test plan (`batches.jmx`) is included in the root directory. To validate the concurrency optimizations:
-1. Open Apache JMeter and load `batches.jmx`.
-2. The test is configured to ramp up 10,000 threads (users) making atomic purchases.
-3. Review the aggregate graph for 95th percentile response times and error rates under heavy contention.
+### Keyless CI/CD
+![Pipeline run summary](docs/Screenshots/06a-github-actions-deploy-success.png)
 
----
+![Deploy job steps](docs/Screenshots/06c-github-actions-deploy-job-steps.png)
 
-## 📂 Project Structure (MVC)
+![Workload Identity pool and provider](docs/Screenshots/07a-workload-identity-pool-and-provider.png)
 
-```text
-├── app/
-│   ├── controllers/   # APIRouters separating Admin, Customer, and Health domains
-│   ├── core/          # App initialization and SQLAlchemy Engine configuration
-│   ├── models/        # SQLAlchemy ORM definitions
-│   ├── schemas/       # Pydantic validation and serialization schemas
-│   ├── services/      # Reusable business logic (e.g., JWT generation, Auth)
-│   ├── views/         # Jinja2 HTML templates for the frontend
-│   └── main.py        # FastAPI app factory
-├── k8s/               # Production-grade Kubernetes manifests
-├── scripts/           # Utilities for seeding the database
-├── tests/             # Comprehensive Pytest test suite
-└── batches.jmx        # JMeter load testing configuration
-```
+![Provider attribute condition restricted to this repository](docs/Screenshots/07c-workload-identity-attribute-mapping-and-condition.png)
 
----
+### Data, images and secrets
+![Cloud SQL overview](docs/Screenshots/08a-cloud-sql-overview.png)
 
-## ⚡ Execution Command Reference
+![Cloud SQL networking: public IP enabled, no authorized networks](docs/Screenshots/09-cloud-sql-networking-no-authorized-networks.png)
 
-Below is a reference list of execution commands utilized throughout this project for local dev, Docker, and Minikube deployment.
+The instance keeps its default public IP but has no authorized networks, so the only access path is the Cloud SQL connector with IAM. Private IP was not set up.
+
+![Images tagged with commit SHAs](docs/Screenshots/12-artifact-registry-sha-tagged-versions.png)
+
+![Secret Manager secrets (names only)](docs/Screenshots/13-secret-manager-secret-names.png)
+
+More screenshots are in [docs/Screenshots/](docs/Screenshots/).
+
+## How it was built
+
+The step-by-step plan, with what was verified and what went wrong at each phase, is in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md). Condensed, with placeholders:
 
 ```bash
-# ── Local dev server ─────────────────────────────────────────────────────────
-uvicorn app.main:app --reload
+# one-time: project, billing, APIs
+gcloud config set project <PROJECT_ID>
+gcloud config set run/region <REGION>
+gcloud services enable run.googleapis.com artifactregistry.googleapis.com sqladmin.googleapis.com \
+  secretmanager.googleapis.com cloudbuild.googleapis.com monitoring.googleapis.com logging.googleapis.com \
+  iam.googleapis.com sts.googleapis.com iamcredentials.googleapis.com
 
-# ── Run tests (with SQLite override) ─────────────────────────────────────────
-$env:DATABASE_URL="sqlite:///./test_retail.db"; $env:PYTHONPATH="."; pytest tests/test_api.py -v
+# registry and image (tag = git SHA)
+gcloud artifacts repositories create retail-repo --repository-format=docker --location=<REGION>
+gcloud builds submit --tag <REGION>-docker.pkg.dev/<PROJECT_ID>/retail-repo/retail-api:$(git rev-parse --short HEAD) .
 
-# ── Run seed scripts locally ─────────────────────────────────────────────────
-$env:PYTHONPATH="."; python scripts/create_admin.py
-$env:PYTHONPATH="."; python scripts/seed_items.py
+# runtime identity (least privilege)
+gcloud iam service-accounts create retail-run-sa
+gcloud projects add-iam-policy-binding <PROJECT_ID> --member=serviceAccount:retail-run-sa@<PROJECT_ID>.iam.gserviceaccount.com --role=roles/cloudsql.client
+# plus roles/secretmanager.secretAccessor on each secret only
 
-# ── Docker Compose ───────────────────────────────────────────────────────────
-docker compose up -d --build
-docker compose logs -f
-docker compose down
+# database
+gcloud sql instances create retail-db --database-version=POSTGRES_15 --edition=ENTERPRISE \
+  --tier=db-f1-micro --region=<REGION> --availability-type=zonal --no-backup
+gcloud sql databases create retail_db --instance=retail-db
 
-# ── Minikube (Windows PowerShell) ────────────────────────────────────────────
-minikube start --cpus=6 --memory=8192 --driver=docker
-& minikube -p minikube docker-env --shell powershell | Invoke-Expression
-docker build -t retail-api:latest .
-minikube addons enable ingress
-kubectl create namespace retail
-kubectl apply -f k8s/postgres.yaml -n retail
-kubectl apply -f k8s/api.yaml -n retail
-kubectl apply -f k8s/ingress.yaml -n retail
-kubectl rollout status deployment/retail-api -n retail
-
-# ── Seed K8s DB ──────────────────────────────────────────────────────────────
-$pod = kubectl get pods -n retail -l app=retail-api -o jsonpath="{.items[0].metadata.name}"
-kubectl exec $pod -n retail -- env PYTHONPATH=/app python scripts/create_admin.py
-kubectl exec $pod -n retail -- env PYTHONPATH=/app python scripts/seed_items.py
+# service (see the plan for the full flag list)
+gcloud run deploy retail-api --image=<IMAGE> --service-account=retail-run-sa@<PROJECT_ID>.iam.gserviceaccount.com \
+  --add-cloudsql-instances=<PROJECT_ID>:<REGION>:retail-db --cpu=2 --memory=1Gi --concurrency=40 \
+  --max-instances=3 --cpu-boost --allow-unauthenticated \
+  --set-env-vars=APP_ENV=production,INSTANCE_CONNECTION_NAME=<PROJECT_ID>:<REGION>:retail-db,DB_USER=retail_user,DB_NAME=retail_db,WORKERS=2,DB_POOL_SIZE=2,DB_MAX_OVERFLOW=1 \
+  --set-secrets=DB_PASSWORD=db-password:latest,SECRET_KEY=jwt-secret-key:latest
 ```
+
+Schema creation, admin creation, seeding and the database report run as Cloud Run Jobs with the same image (`python -m scripts.init_db`, `scripts.create_admin`, `scripts.seed_items`, `scripts.db_report`). Monitoring is defined as JSON in [monitoring/](monitoring/); the load generator image is in [loadtest/](loadtest/).
+
+## Repository layout
+
+| Path | Contents |
+|---|---|
+| `app/` | FastAPI app (controllers, models, services, views) |
+| `scripts/` | `init_db`, `create_admin`, `seed_items`, `db_report` |
+| `tests/` | Pytest suite (20 tests, SQLite) and `summarize_results.py` for JMeter output |
+| `batches.jmx` | JMeter test; parameters `host`, `port`, `protocol`, `items`, `threads`, `loops`, `ramp` |
+| `loadtest/` | JMeter image for Cloud Run Jobs (summary computed in the container) |
+| `monitoring/` | Dashboard, alert policies and notification channel as JSON |
+| `.github/workflows/gcp-deploy.yml` | Keyless deploy: test, build, no-traffic deploy, smoke test, promote |
+| `RESULTS.md` | Every measured run, with settings and consistency checks |
+| `IMPLEMENTATION_PLAN.md` | Phase-by-phase plan with findings |
+| `k8s/`, `docker-compose.yml` | Original Kubernetes and local Docker setup (still working) |
+
+## Local development
+
+```bash
+pip install -r requirements.txt
+DATABASE_URL=sqlite:///./test_retail.db python -m pytest tests/test_api.py -v   # unit tests
+docker compose up --build        # API on :8000 with Postgres (sets AUTO_CREATE_TABLES=1)
+```
+
+## Limits and honest notes
+
+- Single region, small instance sizes, one run per configuration for most experiments and large run-to-run variance.
+- The pipeline's first runs failed twice for fixable reasons (a `pytest` import path, and a transient identity-token timeout), documented in the plan. There is no performance gate in the pipeline, because the measured variance would make a throughput gate flaky.
+- The old self-hosted-runner Minikube workflow (`deploy.yml`) is kept in the repo but disabled.
+- Cost control: Cloud SQL is the main cost, so it exists only for the testing window. Budget alerts only notify and do not cap spending.

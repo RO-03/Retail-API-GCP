@@ -36,13 +36,13 @@
                      enabled="true">
 
           <boolProp name="LoopController.continue_forever">false</boolProp>
-          <stringProp name="LoopController.loops">5</stringProp>
+          <stringProp name="LoopController.loops">${__P(loops,5)}</stringProp>
 
         </elementProp>
 
-        <stringProp name="ThreadGroup.num_threads">200</stringProp>
+        <stringProp name="ThreadGroup.num_threads">${__P(threads,200)}</stringProp>
 
-        <stringProp name="ThreadGroup.ramp_time">1</stringProp>
+        <stringProp name="ThreadGroup.ramp_time">${__P(ramp,1)}</stringProp>
 
         <boolProp name="ThreadGroup.scheduler">false</boolProp>
 
@@ -57,7 +57,7 @@
                    testname="Synchronizing Timer"
                    enabled="true">
 
-          <intProp name="groupSize">200</intProp>
+          <intProp name="groupSize">0</intProp>
           <longProp name="timeoutInMs">0</longProp>
 
         </SyncTimer>
@@ -78,13 +78,13 @@
 
           </elementProp>
 
-          <stringProp name="HTTPSampler.domain">retail-store.local</stringProp>
+          <stringProp name="HTTPSampler.domain">${__P(host,retail-store.local)}</stringProp>
 
-          <stringProp name="HTTPSampler.port">80</stringProp>
+          <stringProp name="HTTPSampler.port">${__P(port,80)}</stringProp>
 
-          <stringProp name="HTTPSampler.protocol">http</stringProp>
+          <stringProp name="HTTPSampler.protocol">${__P(protocol,http)}</stringProp>
 
-          <stringProp name="HTTPSampler.path">/purchase/1</stringProp>
+          <stringProp name="HTTPSampler.path">/purchase/${__P(item,1)}</stringProp>
 
           <stringProp name="HTTPSampler.method">POST</stringProp>
 

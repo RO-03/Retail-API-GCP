@@ -1,14 +1,15 @@
-fastapi
-uvicorn
-sqlalchemy
-pydantic
-requests
-psycopg2-binary
-python-jose[cryptography]
-passlib
+fastapi==0.143.0
+uvicorn==0.54.0
+sqlalchemy==2.1.4
+pydantic==2.14.0
+requests==2.34.2
+psycopg2-binary==2.9.13
+python-jose[cryptography]==3.5.0
+cryptography==50.0.2
+passlib==1.7.4
 bcrypt==3.2.2
-python-multipart
-jinja2
+python-multipart==0.0.32
+jinja2==3.1.6
 # ── testing ──
-pytest
-httpx2
+pytest==9.1.1
+httpx2==2.13.1

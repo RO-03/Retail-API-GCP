@@ -109,8 +109,8 @@ class TestHealth:
         assert resp.status_code == 200
         assert resp.json() == {"status": "ok"}
 
-    def test_healthz_returns_alive(self):
-        resp = client.get("/healthz")
+    def test_livez_returns_alive(self):
+        resp = client.get("/livez")
         assert resp.status_code == 200
         assert resp.json() == {"status": "alive"}
 

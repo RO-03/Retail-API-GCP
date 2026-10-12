@@ -6,10 +6,11 @@ from app.core.database import get_db
 router = APIRouter(tags=["health"])
 
 
-@router.get("/healthz")
+@router.get("/livez")
 def liveness():
     """Liveness probe: process is up. Deliberately does not touch the DB, so a DB outage
-    does not make the platform restart healthy containers."""
+    does not make the platform restart healthy containers. Not named /healthz because
+    Cloud Run's front end reserves that path on public *.run.app URLs (it returns its own 404)."""
     return {"status": "alive"}
 
 

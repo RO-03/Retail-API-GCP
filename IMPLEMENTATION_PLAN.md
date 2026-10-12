@@ -11,7 +11,7 @@ Goal: run the Retail API on Google Cloud (Cloud Run + Cloud SQL), load test it, 
 | Pool is 20 + 30 per worker, up to 50 connections each | Shrink via env; size against Cloud SQL `max_connections` (f1-micro allows about 25) |
 | `create_all()` runs at import time; seeding is manual | Move to `scripts/init_db.py`, run as a Cloud Run Job |
 | `SECRET_KEY` and `admin123` are hardcoded | Move to Secret Manager |
-| `/health` hits the DB | Keep for readiness and startup; add DB-free `/healthz` for liveness |
+| `/health` hits the DB | Keep for readiness and startup; add DB-free `/livez` for liveness |
 | CI is self-hosted and Minikube-only | Add a separate GCP workflow on GitHub-hosted runners |
 | JMeter targets `retail-store.local:80` over http | Parameterize host, port and protocol |
 
@@ -27,7 +27,7 @@ Learn: projects vs billing accounts; budget alerts only notify, they do not cap 
 - [x] Dockerfile: use `${PORT:-8000}` and `${WORKERS:-2}`; add `.git` to `.dockerignore`.
 - [x] `app/core/database.py`: if `INSTANCE_CONNECTION_NAME` is set, build the URL with `URL.create` and `host=/cloudsql/<conn>`; otherwise use `DATABASE_URL`. Read `DB_POOL_SIZE` and `DB_MAX_OVERFLOW` from env.
 - [x] `app/services/auth.py`: read `SECRET_KEY` from env; fail loudly if missing outside dev.
-- [x] Add `/healthz` with no DB access.
+- [x] Add `/livez` with no DB access.
 - [x] Move `create_all` out of import time into `scripts/init_db.py`; make `create_admin.py` read its password from env.
 - [x] Add an `orders` table (id, item_id, created_at) in `app/models/item.py`; insert a row inside the same transaction as the stock decrement in `POST /purchase/{item_id}`, so a purchase either does both or neither. Add a pytest check that stock drops by one and exactly one order row exists. This makes the load test write real data.
 - [x] Run pytest and `docker compose up` to confirm local mode still works; commit.
@@ -59,7 +59,7 @@ Learn: Cloud Build vs local build, immutable tags, least privilege.
 Learn: what Google manages vs what you still own; secret versions.
 
 ## Phase 4: Deploy and operate (Day 2)
-- [ ] Deploy to Cloud Run with: `--service-account retail-run-sa`, `--cpu 2 --memory 1Gi`, `--concurrency 40`, `--min-instances 1 --max-instances 3`, `--cpu-boost`, `--set-secrets`, startup probe on `/health`, liveness probe on `/healthz`.
+- [ ] Deploy to Cloud Run with: `--service-account retail-run-sa`, `--cpu 2 --memory 1Gi`, `--concurrency 40`, `--min-instances 1 --max-instances 3`, `--cpu-boost`, `--set-secrets`, startup probe on `/health`, liveness probe on `/livez`.
 - [ ] Pool budget check: `max_instances x workers x (pool + overflow) < max_connections - ~10`. Example: 3 x 2 x 5 = 30.
 - [ ] Create a Cloud Run Job running `init_db.py`, `create_admin.py`, `seed_items.py`; execute once.
 - [ ] Practice revisions: deploy v2 with `--no-traffic`, split 10%, then 100%, then roll back.
@@ -72,7 +72,7 @@ Learn: Cloud Run concurrency vs Kubernetes replicas, cold starts, jobs vs servic
 - [ ] Record RPS, p50/p95/p99 and error rate in a Minikube vs Cloud Run table. Report measured values.
 - [ ] After each run, check that `orders` row count equals the stock decrease (no oversell, no lost writes) and note it in the results.
 - [ ] Monitoring dashboard: request count, latency percentiles, instance count, Cloud SQL connections.
-- [ ] Uptime check on `/healthz`; alert on 5xx rate or p95 latency.
+- [ ] Uptime check on `/livez`; alert on 5xx rate or p95 latency.
 - [ ] Log-based metric for 409 "out of stock" responses.
 - [ ] Deliberately exceed the connection budget once to see how pool exhaustion appears.
 

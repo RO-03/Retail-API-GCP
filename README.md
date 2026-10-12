@@ -6,6 +6,8 @@ A FastAPI + PostgreSQL retail store API, ported from a Kubernetes (Minikube) pro
 
 > The Cloud Run service and Cloud SQL instance were created for this project and are deleted after the work is done, so there is no live URL. The evidence is in the screenshots, the measured results in [RESULTS.md](RESULTS.md) and the infrastructure definitions in this repo.
 
+For a deep dive into how everything works and why (architecture, trade-offs, interview Q&A), see [EXPLANATION.md](EXPLANATION.md).
+
 The original Minikube/Nginx Ingress version is documented in [docs/MINIKUBE_README.md](docs/MINIKUBE_README.md) and in the [original repository](https://github.com/RO-03/Retail-API-stress-test).
 
 ## What the app does

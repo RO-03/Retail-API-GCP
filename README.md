@@ -55,7 +55,7 @@ Load generator: Apache JMeter in a Cloud Run Job in the same region, 200 concurr
 - **Variance is large.** The same 1,000-request test gave 35 req/s once and 104 req/s on a repeat, and p99 tails of 3 to 5 seconds appeared in most runs and were not diagnosed. Read these as "measured on this setup", not as capacity guarantees.
 - **Not measured:** a Minikube versus Cloud Run comparison with the same test. No such claim is made.
 
-COLD_START_PLACEHOLDER
+- **Cold start (scale to zero):** 6.1 to 6.4 seconds for the first request on an idle revision (measured from a laptop, includes the database readiness check), against 0.2 to 0.3 seconds once warm. A 2-second startup probe period gave 5.4 seconds in one sample, so tuning the probe is not a confirmed fix. The uptime check keeps the live URL warm, so the numbers come from tagged old revisions. See [RESULTS.md](RESULTS.md).
 
 ## Findings worth knowing
 

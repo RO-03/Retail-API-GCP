@@ -147,7 +147,7 @@ The owner records these from the JMeter summary, Cloud Monitoring and the Cloud 
 | `[ORDERS]` | Order rows after a run | SQL count | 34,296 total orders after all runs |
 | `[STOCK_DROP]` | Stock decrease after a run | SQL | Equal to orders on every item (21,221 / 4,415 / 4,318 / 4,342) |
 | `[MINIKUBE_RPS]` | Minikube throughput measured the same way | JMeter on Minikube | NOT MEASURED. Do not write any comparison. The repo's own CI comment says about 120 req/s, which is unverified |
-| `[COLD_START_MS]` | Cloud Run cold start observed | Logs or test | NOT MEASURED |
+| `[COLD_START_MS]` | Cloud Run cold start observed | Logs or test | 6,100 to 6,400 ms for the first request on an idle revision (4 runs, laptop to Mumbai, includes the database readiness check); 200 to 300 ms when warm. A 2-second probe period gave 5,390 ms in 1 sample (not conclusive) |
 | `[COST]` | Total spend for the project | Billing report | NOT KNOWN YET (billing data lags; check Billing, Reports after the project is deleted) |
 
 Rules for using the table: laptop-based load tests mostly measure the owner's internet connection, so any bullet using laptop numbers must say so or use the same-region numbers instead. If the Minikube and Cloud Run numbers were not measured the same way, do not write a "X times faster" claim.
@@ -265,7 +265,7 @@ Rules for using the table: laptop-based load tests mostly measure the owner's in
 
 ### 11.6 Cold start (fill in after the measurement is recorded in RESULTS.md)
 
-- Measured on four idle old revisions: first request 6.1 to 6.4 seconds versus 0.2 to 0.3 seconds once warm (measured from a laptop, includes network). A test of a shorter startup-probe interval is recorded in RESULTS.md if it was completed. Until then do not write a cold-start improvement claim.
+- Measured on four idle old revisions: first request 6.1 to 6.4 seconds versus 0.2 to 0.3 seconds once warm (measured from a laptop, includes network). A single sample with a 2-second startup probe period gave 5.4 seconds, which is not a confirmed improvement. Do not write a cold-start improvement claim; stating the measured cold start as a limitation or a finding is fine.
 
 ### 11.7 Words and claims to avoid (not supported by the evidence)
 

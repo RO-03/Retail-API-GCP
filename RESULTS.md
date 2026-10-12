@@ -116,6 +116,23 @@ Lesson, with the numbers: connection budget must be `instances x workers x (pool
 | Log-based metric `out_of_stock_409` | Counts HTTP 409 responses from the service. Verified: 8 deliberate requests to a nonexistent item (HTTP 409) produced a data point of 8; an adjacent interval showed 5 that was not traced to a source |
 | Notification channel | Email to the project owner |
 
+## Cold start (service scaled to zero, `min-instances` 0)
+
+Method: Cloud Run tagged URLs on old revisions that had no traffic for a long time, so the first request has to start a fresh container (startup probe on `/health`, which includes a database connection). Timed with `curl` from the owner's laptop over HTTPS in Mumbai (`time_total`, includes about 0.15 s connect and 0.25 s TLS). The live URL cannot be used because the uptime check calls `/livez` every minute and keeps an instance warm.
+
+| Revision | Startup probe period | First request | Second request (warm) |
+|---|---|---|---|
+| 00015 | 5 s | 6.36 s | 0.27 s |
+| 00013 | 5 s | 6.20 s | 0.20 s |
+| 00011 | 5 s | 6.09 s | 0.29 s |
+| 00004 | 5 s | 6.10 s | 0.25 s |
+| 00020 (new, probe test) | 2 s | 5.39 s | 0.20 s |
+
+- Cold start was 6.1 to 6.4 seconds in four runs with the default 5-second startup probe period, against 0.2 to 0.3 seconds once warm.
+- Hypothesis: a 5-second probe period quantizes the readiness wait. A revision with a 2-second period (Cloud Run requires the probe timeout to be lower than the period, so 2 s with a 1 s timeout) took 5.39 s on its first request, about 0.7 to 1.0 seconds less. This is a single sample, so it is **not** a confirmed improvement, and the saving is much smaller than the hypothesis predicted. Most of the cold start is therefore not probe waiting; container start, image pull and application import with two workers were not measured separately.
+- The controls run at the same time as the 2-second test were invalid and are not counted: a ninth tag could not be created (Cloud Run allows 8 tags per service, so one URL returned 404), and one revision answered in 0.3 s so it was not cold. The four 5-second results above were measured earlier in the session.
+- State left behind: the service's latest template now carries the 2-second startup probe (revision 00020), so later deploys inherit it, while live traffic stays on revision 00017 until the next pipeline promotion. All test tags were removed.
+
 ## Notes and findings so far
 
 - The same test shape gave 35 req/s on its first run and 104 req/s on the repeat. Run-to-run variance is large, so single runs should not be quoted as "the" number. The first run came after an idle period and the service scaled from 1 to 3 instances during it.

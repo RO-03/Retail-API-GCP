@@ -53,7 +53,7 @@ Learn: Cloud Build vs local build, immutable tags, least privilege.
 
 ## Phase 3: Data and secrets (Day 2) - DONE (except secret rotation)
 - [x] Create Cloud SQL Postgres 15 with `--edition=ENTERPRISE`. Instance `retail-db`, `db-f1-micro`, 10 GB SSD, zonal, no backups. Measured `SHOW max_connections;` = **25** (3 reserved for superusers, so 22 usable). Kept `db-f1-micro`.
-- [x] No authorized networks; Cloud Run connects through the Cloud SQL connector socket (verified from a Cloud Run Job and the service).
+- [x] No authorized networks; Cloud Run connects through the Cloud SQL connector socket (verified from a Cloud Run Job and the service). Note: the instance still has a public IP (the default); private IP is a stretch goal and was not done.
 - [x] Create secrets `db-password`, `jwt-secret-key`, `admin-password` (random values, never printed). Narrowed `secretAccessor` for `retail-run-sa` from project-wide to these three secrets only.
 - [ ] Rotate one secret to see versioning (optional, do if time allows).
 

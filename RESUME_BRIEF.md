@@ -56,7 +56,7 @@ GCP services (status in section 4):
 
 - Artifact Registry repo with a keep-last-5 cleanup policy; images built with Cloud Build and tagged with the git commit SHA, never `latest`.
 - Runtime service account `retail-run-sa` with only Cloud SQL Client (project) and Secret Accessor on three individual secrets.
-- Cloud SQL for PostgreSQL 15 (`db-f1-micro`, no public network access, Cloud Run connects through the Cloud SQL Unix socket). Measured `max_connections` = 25, 22 usable.
+- Cloud SQL for PostgreSQL 15 (`db-f1-micro`; the instance has a public IP but no authorized networks, so the only access path is the Cloud SQL connector with IAM, which Cloud Run uses through the Unix socket; private IP was not set up, so do not claim "private" networking). Measured `max_connections` = 25, 22 usable.
 - Three secrets in Secret Manager (database password, JWT key, admin password), created with random values; none stored in the repo.
 - Cloud Run service (2 vCPU, 1 GiB, concurrency 40, max 3 instances, CPU boost, startup probe on `/health`, liveness probe on `/livez`), plus Cloud Run Jobs for schema init, admin creation, seeding and a DB report.
 - Revision practice: no-traffic deploy on a tagged URL, 10% traffic split, promotion, rollback and roll forward.

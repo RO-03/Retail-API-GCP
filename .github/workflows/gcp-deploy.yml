@@ -47,6 +47,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Build first, authenticate afterwards: the short-lived GitHub identity token is then
+      # used immediately instead of sitting idle through the build.
+      - name: Build image (tag = commit SHA)
+        run: docker build -t "$IMAGE:${GITHUB_SHA::7}" .
+
       - name: Authenticate to Google Cloud (Workload Identity Federation)
         uses: google-github-actions/auth@v2
         with:
@@ -55,13 +60,14 @@ jobs:
 
       - uses: google-github-actions/setup-gcloud@v2
 
-      - name: Configure Docker for Artifact Registry
-        run: gcloud auth configure-docker asia-south1-docker.pkg.dev --quiet
-
-      - name: Build and push image (tag = commit SHA)
+      - name: Push image to Artifact Registry (with retries)
         run: |
-          docker build -t "$IMAGE:${GITHUB_SHA::7}" .
-          docker push "$IMAGE:${GITHUB_SHA::7}"
+          gcloud auth configure-docker asia-south1-docker.pkg.dev --quiet
+          for attempt in 1 2 3; do
+            docker push "$IMAGE:${GITHUB_SHA::7}" && exit 0
+            echo "Push failed (attempt $attempt), retrying in 10s"; sleep 10
+          done
+          exit 1
 
       - name: Deploy new revision with no traffic on a tagged URL
         run: |

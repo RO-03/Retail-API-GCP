@@ -84,7 +84,7 @@
 
           <stringProp name="HTTPSampler.protocol">${__P(protocol,http)}</stringProp>
 
-          <stringProp name="HTTPSampler.path">/purchase/${__P(item,1)}</stringProp>
+          <stringProp name="HTTPSampler.path">/purchase/${__Random(1,${__P(items,1)})}</stringProp>
 
           <stringProp name="HTTPSampler.method">POST</stringProp>
 

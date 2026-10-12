@@ -1,0 +1,9 @@
+steps:
+  - name: ubuntu
+    args: ["cp", "batches.jmx", "loadtest/batches.jmx"]
+  - name: gcr.io/cloud-builders/docker
+    args: ["build", "-t", "asia-south1-docker.pkg.dev/$PROJECT_ID/retail-repo/retail-loadtest:$_TAG", "loadtest"]
+images:
+  - asia-south1-docker.pkg.dev/$PROJECT_ID/retail-repo/retail-loadtest:$_TAG
+substitutions:
+  _TAG: dev

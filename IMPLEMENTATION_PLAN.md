@@ -93,6 +93,7 @@ Learn: golden signals, alerting, why p50 can look fine while p95 and p99 and err
 
 Findings during Phase 6:
 - The first run failed in the test job because `pytest` did not put the repo on the import path; `python -m pytest` fixes it. The cloud steps ran fine on the second push.
+- One later run failed at `docker push` with `Unable to retrieve Identity Pool subject token (connection timeout)`, a transient failure to fetch GitHub's short-lived identity token after a long idle build. The same code had passed before. Fixed by building before authenticating and retrying the push up to 3 times; the next run passed. So far the workflow has 2 successes and 2 failures in 4 runs (the other failure was the `pytest` import path bug).
 - `gh` defaulted to the old `upstream` repository; commands need `-R RO-03/Retail-API-GCP`.
 - The old `.github/workflows/deploy.yml` (self-hosted runner, Minikube) is still in the repo and triggers on `main`, so it would fail if `gcp` is merged into `main`. Decide in Phase 7 whether to disable or remove it.
 

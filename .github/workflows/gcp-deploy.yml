@@ -1,0 +1,89 @@
+name: Deploy to Google Cloud Run
+
+# Keyless deploy: GitHub's OIDC token is exchanged for short-lived Google credentials via
+# Workload Identity Federation. No service account key is stored anywhere.
+# Flow: test -> build and push image tagged with the commit SHA -> deploy a no-traffic
+# revision on a tagged URL -> smoke test it -> promote it to 100% traffic.
+
+on:
+  push:
+    branches: [gcp]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # required to request the OIDC token
+
+concurrency:
+  group: gcp-deploy
+  cancel-in-progress: false
+
+env:
+  PROJECT_ID: retailgcp
+  REGION: asia-south1
+  SERVICE: retail-api
+  IMAGE: asia-south1-docker.pkg.dev/retailgcp/retail-repo/retail-api
+  WIF_PROVIDER: projects/612928964286/locations/global/workloadIdentityPools/github-pool/providers/github-provider
+  DEPLOYER_SA: retail-deployer-sa@retailgcp.iam.gserviceaccount.com
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Unit tests (SQLite)
+        env:
+          DATABASE_URL: sqlite:///./test_retail.db
+        run: pytest tests/test_api.py -v --tb=short
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud (Workload Identity Federation)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.DEPLOYER_SA }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker asia-south1-docker.pkg.dev --quiet
+
+      - name: Build and push image (tag = commit SHA)
+        run: |
+          docker build -t "$IMAGE:${GITHUB_SHA::7}" .
+          docker push "$IMAGE:${GITHUB_SHA::7}"
+
+      - name: Deploy new revision with no traffic on a tagged URL
+        run: |
+          gcloud run deploy "$SERVICE" \
+            --image "$IMAGE:${GITHUB_SHA::7}" \
+            --region "$REGION" \
+            --no-traffic --tag candidate \
+            --quiet
+
+      - name: Smoke test the candidate revision
+        run: |
+          URL=$(gcloud run services describe "$SERVICE" --region "$REGION" --format=json \
+            | jq -r '.status.traffic[] | select(.tag=="candidate") | .url')
+          echo "Candidate URL: $URL"
+          test -n "$URL"
+          # /livez, not /healthz: Cloud Run's front end reserves /healthz on run.app URLs.
+          curl -fsS --retry 5 --retry-delay 5 --retry-connrefused "$URL/livez"
+          curl -fsS --retry 5 --retry-delay 5 "$URL/health"
+          curl -fsS "$URL/items" | jq -e 'type == "array"'
+
+      - name: Promote candidate to 100% traffic
+        run: |
+          gcloud run services update-traffic "$SERVICE" --region "$REGION" --to-latest --quiet
+          gcloud run services describe "$SERVICE" --region "$REGION" \
+            --format="value(status.latestReadyRevisionName)"

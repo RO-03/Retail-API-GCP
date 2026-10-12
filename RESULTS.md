@@ -98,7 +98,9 @@ What it looked like:
 - The 429 responses (451) come from Cloud Run itself, not the app. They were not diagnosed. They appeared alongside the 5xx and the failing `/health` checks, so a likely cause is instances unable to become ready or serve, but that was not verified.
 - The p50 stayed low (246 ms) while p95 and p99 reached 21 and 31 seconds. The few requests that got a connection were fast, while others waited or failed, so averages and medians hid the problem. The percentile and error panels on the dashboard are what expose it.
 - The 5xx alert policy fired during the run (email received: "5xx count over 5 in 5 minutes", value 71), so the alert path works end to end.
+- The alert also recovered on its own: the "Alert recovered" email arrived about 10 minutes 48 seconds after the alert started, once the 5xx count in the 5-minute window dropped to 0. So the full firing and recovery cycle was observed.
 - Recovery: rolled traffic back to revision `retail-api-00002-mon`. `/health` and `/livez` returned OK and P2 had zero errors.
+- After the test the service was moved to revision `retail-api-00004-qht` with the normal pool settings (2 + 1 per worker) and `min-instances` 0 to stop the idle cost. Note that the latest template had kept the oversized pool settings from the experiment, so they were reset in the same update.
 
 Lesson, with the numbers: connection budget must be `instances x workers x (pool_size + max_overflow)` at or below `max_connections` minus the reserved slots. The normal config is 3 x 2 x 3 = 18 against 22 usable. The oversized one allowed 120.
 

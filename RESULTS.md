@@ -83,6 +83,37 @@ Method: same load generator, same shape, same service, only the target item chan
 
 Result: spreading the same load over 4 rows roughly 2.6 times the throughput and cuts the median latency by about 3.5 times, which supports the hot-row hypothesis. It is evidence, not proof: it was not tested by inspecting lock waits in Postgres. The p99 tail did not improve and was worse in the spread runs (about 3 to 5 seconds), so something else causes the occasional slow request (candidates: the 3 + 3 pool limit queueing, instance start-up, or Cloud SQL `db-f1-micro` CPU limits). That was not diagnosed.
 
+## Experiment: deliberate connection pool exhaustion
+
+Setup: revision `retail-api-00003-tdl`, identical to the normal deployment except `DB_POOL_SIZE=10` and `DB_MAX_OVERFLOW=10` (up to 20 connections per worker, 40 per instance, 120 across 3 instances) against a Cloud SQL limit of 25 connections (22 usable). Load: in-region job, 200 threads, 10 loops (2,000 requests), items spread over 1 to 4, sent at the public URL while this revision took 100% of traffic.
+
+| Run | Pool config | Requests | Throughput | p50 | p95 | p99 | max | Response codes |
+|---|---|---|---|---|---|---|---|---|
+| P1 | 10 + 10 per worker (oversized) | 2,000 | 5.7 req/s | 246 ms | 20,998 ms | 31,283 ms | 58,499 ms | 200 = 452, 429 = 451, 500 = 1,085, 503 = 12 |
+| P2 | 2 + 1 per worker (normal), after rollback | 1,000 | 81.3 req/s | 333 ms | 4,087 ms | 4,222 ms | 10,150 ms | 200 = 1,000 |
+
+What it looked like:
+- Only 22.6% of requests succeeded (452 of 2,000). Throughput fell to 5.7 req/s and the run took 349 seconds instead of about 20.
+- Postgres rejected new connections. The Cloud Run error log shows `FATAL: remaining connection slots are reserved for non-replication superuser` (82 occurrences) and `FATAL: sorry, too many clients already` (7 occurrences), surfaced by the app as HTTP 500. Some requests failed the DB readiness probe with 503 (`DB unavailable`).
+- The 429 responses (451) come from Cloud Run itself, not the app. They were not diagnosed. They appeared alongside the 5xx and the failing `/health` checks, so a likely cause is instances unable to become ready or serve, but that was not verified.
+- The p50 stayed low (246 ms) while p95 and p99 reached 21 and 31 seconds. The few requests that got a connection were fast, while others waited or failed, so averages and medians hid the problem. The percentile and error panels on the dashboard are what expose it.
+- The 5xx alert policy fired during the run (email received: "5xx count over 5 in 5 minutes", value 71), so the alert path works end to end.
+- Recovery: rolled traffic back to revision `retail-api-00002-mon`. `/health` and `/livez` returned OK and P2 had zero errors.
+
+Lesson, with the numbers: connection budget must be `instances x workers x (pool_size + max_overflow)` at or below `max_connections` minus the reserved slots. The normal config is 3 x 2 x 3 = 18 against 22 usable. The oversized one allowed 120.
+
+## Monitoring and alerting that exists (all defined as files in `monitoring/`)
+
+| Item | What it covers |
+|---|---|
+| Dashboard `retail-api overview` | Requests per second by status class, latency p50 / p95 / p99, Cloud Run instance count, Cloud SQL connections, Cloud SQL CPU, HTTP 409 per minute |
+| Uptime check `retail-api-livez` | HTTPS GET `/livez` every 1 minute from Google's checkers (not `/healthz`, which Cloud Run's front end answers itself) |
+| Alert: 5xx | More than 5 server errors in 5 minutes. Verified firing during P1 |
+| Alert: p95 latency | p95 above 2,000 ms for 5 minutes. Created, not yet seen firing |
+| Alert: uptime | Uptime check failing from more than one location. Created, not yet seen firing |
+| Log-based metric `out_of_stock_409` | Counts HTTP 409 responses from the service. Verified: 8 deliberate requests to a nonexistent item (HTTP 409) produced a data point of 8; an adjacent interval showed 5 that was not traced to a source |
+| Notification channel | Email to the project owner |
+
 ## Notes and findings so far
 
 - The same test shape gave 35 req/s on its first run and 104 req/s on the repeat. Run-to-run variance is large, so single runs should not be quoted as "the" number. The first run came after an idle period and the service scaled from 1 to 3 instances during it.

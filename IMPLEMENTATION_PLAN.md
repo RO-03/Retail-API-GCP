@@ -71,17 +71,18 @@ Findings during Phase 4:
 
 Learn: Cloud Run concurrency vs Kubernetes replicas, cold starts, jobs vs services.
 
-## Phase 5: Load test and observability (Day 3)
+## Phase 5: Load test and observability (Day 3) - DONE (Minikube comparison not measured)
 - [x] Parameterize `batches.jmx` with `${__P(host)}`, `${__P(port)}`, `${__P(protocol)}` (also item, threads, loops, ramp; defaults match the old Minikube setup).
-- [ ] Run from your laptop and from a Compute Engine VM or Cloud Run Job in `asia-south1`; label results honestly (laptop numbers mostly measure your internet).
-- [ ] Record RPS, p50/p95/p99 and error rate in a Minikube vs Cloud Run table. Report measured values.
-- [ ] After each run, check that `orders` row count equals the stock decrease (no oversell, no lost writes) and note it in the results.
-- [ ] Monitoring dashboard: request count, latency percentiles, instance count, Cloud SQL connections.
-- [ ] Uptime check on `/livez`; alert on 5xx rate or p95 latency.
-- [ ] Log-based metric for 409 "out of stock" responses.
-- [ ] Deliberately exceed the connection budget once to see how pool exhaustion appears.
+- [x] Run from your laptop and from a Cloud Run Job in `asia-south1` (image in `loadtest/`); results are labeled by where the load ran. See `RESULTS.md`.
+- [ ] Record RPS, p50/p95/p99 and error rate in a Minikube vs Cloud Run table. Cloud Run numbers are measured; the Minikube side has NOT been re-measured with the same test, so no comparison is claimed.
+- [x] After each run, check that `orders` row count equals the stock decrease (no oversell, no lost writes). Verified across 34,296 orders on all 4 items.
+- [x] Monitoring dashboard: request rate by status, latency percentiles, instance count, Cloud SQL connections and CPU, 409 count (`monitoring/dashboard.json`).
+- [x] Uptime check on `/livez`; alerts on 5xx rate (verified firing), p95 latency, and uptime failure (the last two created, not yet seen firing).
+- [x] Log-based metric `out_of_stock_409`, verified with deliberate 409s.
+- [x] Deliberately exceed the connection budget once. Result: only 22.6% of 2,000 requests succeeded; Postgres rejected connections ("remaining connection slots are reserved", "too many clients already").
+- [x] Extra experiment: hot row versus spread load. Spreading across 4 items gave about 2.6x throughput and about 3.7x lower median latency (RESULTS.md).
 
-Learn: golden signals, alerting, why pool exhaustion shows up as latency before errors.
+Learn: golden signals, alerting, why p50 can look fine while p95 and p99 and error rate show pool exhaustion.
 
 ## Phase 6: CI/CD with Workload Identity Federation (Day 3)
 - [ ] Create a Workload Identity Pool and GitHub OIDC provider restricted to `RO-03/Retail-API-GCP`.

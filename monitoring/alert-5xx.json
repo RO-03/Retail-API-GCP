@@ -1,0 +1,21 @@
+{
+  "displayName": "retail-api: 5xx responses",
+  "documentation": { "content": "More than 5 server errors (HTTP 5xx) in 5 minutes. Check Cloud Run logs and Cloud SQL connection count.", "mimeType": "text/markdown" },
+  "combiner": "OR",
+  "conditions": [
+    {
+      "displayName": "5xx count over 5 in 5 minutes",
+      "conditionThreshold": {
+        "filter": "metric.type=\"run.googleapis.com/request_count\" AND resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"retail-api\" AND metric.labels.response_code_class=\"5xx\"",
+        "aggregations": [
+          { "alignmentPeriod": "300s", "perSeriesAligner": "ALIGN_DELTA", "crossSeriesReducer": "REDUCE_SUM" }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 5,
+        "duration": "0s",
+        "trigger": { "count": 1 }
+      }
+    }
+  ],
+  "notificationChannels": ["projects/retailgcp/notificationChannels/15476709660617900692"]
+}

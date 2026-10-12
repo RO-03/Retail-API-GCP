@@ -37,14 +37,17 @@ Verified on real Postgres 15 via docker compose: 40 concurrent purchases on an i
 Findings during Phase 1:
 - SQLAlchemy 2.1+ maps a bare `postgresql://` URL to the psycopg v3 driver, but requirements install psycopg2, so fresh builds failed. Fixed by rewriting the URL to `postgresql+psycopg2://` in `database.py`.
 - With `AUTO_CREATE_TABLES=1` (legacy compose and K8s path) two workers race on `create_all` and one crashes and is respawned. This is the reason Cloud Run uses `scripts/init_db.py` as a Job instead.
-- Dependencies in `requirements.txt` are unpinned; consider pinning in Phase 2.
+- Dependencies in `requirements.txt` were unpinned; pinned in Phase 2.
 
 Learn: 12-factor config, why import-time side effects break at scale, liveness vs readiness vs startup probes.
 
-## Phase 2: Registry, build, identity (Day 1)
-- [ ] Create Artifact Registry `retail-repo` with a cleanup policy keeping the last 5 images.
-- [ ] Build with Cloud Build; tag with the git SHA, never `latest`.
-- [ ] Create service account `retail-run-sa` with only `roles/cloudsql.client` and `roles/secretmanager.secretAccessor`.
+## Phase 2: Registry, build, identity (Day 1) - DONE
+- [x] Pin dependency versions in `requirements.txt` (the versions the tests passed against).
+- [x] Create Artifact Registry `retail-repo` (asia-south1) with a cleanup policy keeping the last 5 images.
+- [x] Build with Cloud Build; tag with the git SHA, never `latest`. First image: `asia-south1-docker.pkg.dev/retailgcp/retail-repo/retail-api:6a2cd31` (build took 1m05s).
+- [x] Create service account `retail-run-sa` with only `roles/cloudsql.client` and `roles/secretmanager.secretAccessor`. Verified: exactly those two roles.
+
+Note: the secretAccessor role is granted project-wide for now; in Phase 3 it can be narrowed to the three individual secrets.
 
 Learn: Cloud Build vs local build, immutable tags, least privilege.
 

@@ -100,9 +100,10 @@ Findings during Phase 6:
 Learn: OIDC token exchange, no long-lived keys, attribute conditions.
 
 ## Phase 7: Docs, resume, cleanup
-- [ ] README: GCP architecture diagram, deploy steps or `deploy.sh`, results table, screenshots, cost notes, pool math. Fix badges that still point at the old repo.
-- [ ] Delete the Cloud Run service and Cloud SQL instance; verify in Billing.
-- [ ] Write resume bullets using only measured numbers.
+- [x] README: GCP architecture diagram, condensed deploy steps, results table, 28 screenshots, cost notes, pool math. Badge now points at the new repo's workflow. The Minikube README is kept in `docs/MINIKUBE_README.md` and the old self-hosted workflow is disabled.
+- [x] Cold start measured (6.1 to 6.4 s on an idle revision versus 0.2 to 0.3 s warm); the 2-second probe test was inconclusive (see `RESULTS.md`).
+- [ ] Teardown: delete Cloud SQL `retail-db`, the Cloud Run service and jobs, the uptime check, and disable the uptime alert and the deploy workflow; verify in Billing. Keep Artifact Registry images, secrets, the Workload Identity pool and the monitoring JSON definitions (all negligible or free).
+- [x] Resume material: `RESUME_BRIEF.md` has the full project details, measured numbers and line options. The owner still has to write the final lines.
 
 ## Stretch goals (by learning value)
 1. Private IP for Cloud SQL via Direct VPC egress.

@@ -186,5 +186,5 @@ docker compose up --build        # API on :8000 with Postgres (sets AUTO_CREATE_
 
 - Single region, small instance sizes, one run per configuration for most experiments and large run-to-run variance.
 - The pipeline's first runs failed twice for fixable reasons (a `pytest` import path, and a transient identity-token timeout), documented in the plan. There is no performance gate in the pipeline, because the measured variance would make a throughput gate flaky.
-- The old self-hosted-runner Minikube workflow (`deploy.yml`) is kept in the repo but disabled.
+- The old self-hosted-runner Minikube workflow (`deploy.yml`) is kept in the repo but disabled. The `gcp-deploy` workflow is also disabled now that the environment has been torn down (Cloud SQL, the Cloud Run service and its jobs were deleted after testing); re-enable it after recreating the environment from the commands above.
 - Cost control: Cloud SQL is the main cost, so it exists only for the testing window. Budget alerts only notify and do not cap spending.

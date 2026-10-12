@@ -77,7 +77,7 @@ GCP services (status in section 4):
 - A JMeter performance gate in the pipeline (left out on purpose because of the variance above).
 - Terraform or any other infrastructure-as-code tool (the monitoring definitions are JSON files applied through the Cloud Monitoring API, which is "monitoring as code", not Terraform), private IP for Cloud SQL, Cloud Armor, Cloud Trace, GKE.
 - Done since the earlier version of this brief: README with architecture diagram, 28 screenshots (emails redacted), RESULTS.md, the old self-hosted Minikube workflow disabled in the repo.
-- Cloud SQL and the Cloud Run service are still running; they will be deleted when the project is finished, so a live link may not work later. Do not put a live demo URL on the resume.
+- The Cloud SQL instance, the Cloud Run service and its jobs were deleted on 2026-10-13 after the testing finished (verified with gcloud), and the deploy workflow is disabled. There is no live URL, so do not put a demo link on the resume; the evidence is the repo, the screenshots and RESULTS.md.
 
 ## 5. Claims on the current resume that need checking (important for honesty)
 

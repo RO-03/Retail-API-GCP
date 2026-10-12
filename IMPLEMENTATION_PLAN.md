@@ -102,7 +102,9 @@ Learn: OIDC token exchange, no long-lived keys, attribute conditions.
 ## Phase 7: Docs, resume, cleanup
 - [x] README: GCP architecture diagram, condensed deploy steps, results table, 28 screenshots, cost notes, pool math. Badge now points at the new repo's workflow. The Minikube README is kept in `docs/MINIKUBE_README.md` and the old self-hosted workflow is disabled.
 - [x] Cold start measured (6.1 to 6.4 s on an idle revision versus 0.2 to 0.3 s warm); the 2-second probe test was inconclusive (see `RESULTS.md`).
-- [ ] Teardown: delete Cloud SQL `retail-db`, the Cloud Run service and jobs, the uptime check, and disable the uptime alert and the deploy workflow; verify in Billing. Keep Artifact Registry images, secrets, the Workload Identity pool and the monitoring JSON definitions (all negligible or free).
+- [x] Teardown done on 2026-10-13: deleted Cloud SQL `retail-db`, the Cloud Run service and both jobs, the uptime check and its alert policy (a policy that references an uptime check blocks deleting the check, so it was deleted; its definition is kept in `monitoring/alert-uptime.json`), and disabled the `gcp-deploy` workflow. Verified with gcloud: 0 SQL instances, 0 services, 0 jobs, 0 uptime checks, no VMs, IPs or disks. Kept: Artifact Registry images (about 0.5 GB), 3 secrets, a small Cloud Build source bucket, the Workload Identity pool, service accounts, and 2 alert policies that stay quiet with no service.
+- [ ] Still to do by the owner: check Billing, Reports tomorrow (cost data lags up to a day) and record the final cost in `RESUME_BRIEF.md` if wanted.
+- To recreate the environment: follow the commands in `README.md`, run the Cloud Run Jobs for schema, admin and seed, then re-enable the `gcp-deploy` workflow.
 - [x] Resume material: `RESUME_BRIEF.md` has the full project details, measured numbers and line options. The owner still has to write the final lines.
 
 ## Stretch goals (by learning value)
